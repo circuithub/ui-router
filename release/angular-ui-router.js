@@ -1,6 +1,6 @@
 /**
  * State-based routing for AngularJS
- * @version v0.0.2-dev-2013-07-30
+ * @version v0.0.2-dev-2013-05-25
  * @link http://angular-ui.github.com/
  * @license MIT License, http://www.opensource.org/licenses/MIT
  */
@@ -298,9 +298,7 @@ UrlMatcher.prototype.exec = function (path, searchParams) {
     nPath = this.segments.length-1,
     values = {}, i;
 
-  if (nPath !== m.length - 1) throw new Error("Unbalanced capture group in route '" + this.source + "'");
-
-  for (i=0; i<nPath; i++) values[params[i]] = m[i+1];
+  for (i=0; i<nPath; i++) values[params[i]] = decodeURIComponent(m[i+1]);
   for (/**/; i<nTotal; i++) values[params[i]] = searchParams[params[i]];
 
   return values;
@@ -339,7 +337,7 @@ UrlMatcher.prototype.format = function (values) {
   for (i=0; i<nPath; i++) {
     value = values[params[i]];
     // TODO: Maybe we should throw on null here? It's not really good style to use '' and null interchangeabley
-    if (value != null) result += encodeURIComponent(value);
+    if (value != null) result += value;
     result += segments[i+1];
   }
   for (/**/; i<nTotal; i++) {
@@ -501,8 +499,8 @@ function $UrlRouterProvider(  $urlMatcherFactory) {
 
 angular.module('ui.router').provider('$urlRouter', $UrlRouterProvider);
 
-$StateProvider.$inject = ['$urlRouterProvider', '$urlMatcherFactoryProvider', '$locationProvider'];
-function $StateProvider(   $urlRouterProvider,   $urlMatcherFactory,           $locationProvider) {
+$StateProvider.$inject = ['$urlRouterProvider', '$urlMatcherFactoryProvider'];
+function $StateProvider(   $urlRouterProvider,   $urlMatcherFactory) {
 
   var root, states = {}, $state;
 
@@ -543,11 +541,6 @@ function $StateProvider(   $urlRouterProvider,   $urlMatcherFactory,           $
       parent = findState(state.parent);
     }
     state.parent = parent;
-    // inherit 'data' from parent and override by own values (if any)
-    if (state.parent && state.parent.data) {
-        state.data = angular.extend({}, state.parent.data, state.data);
-        state.self.data = state.data;
-    }
     // state.children = [];
     // if (parent) parent.children.push(state);
 
@@ -619,7 +612,7 @@ function $StateProvider(   $urlRouterProvider,   $urlMatcherFactory,           $
     // Register the state in the global state list and with $urlRouter if necessary.
     if (!state['abstract'] && url) {
       $urlRouterProvider.when(url, ['$match', function ($match) {
-        if ($state.$current.navigable != state) $state.transitionTo(state, $match, false);
+        $state.transitionTo(state, $match, false);
       }]);
     }
     states[name] = state;
@@ -774,12 +767,10 @@ function $StateProvider(   $urlRouterProvider,   $urlMatcherFactory,           $
       return $state.$current.includes[findState(stateOrName).name];
     };
 
-    $state.href = function (stateOrName, params, options) {
-      options = extend({ lossy: true }, options || {});
-      var state = findState(stateOrName);
-      var nav = (state && options.lossy) ? state.navigable : state;
-      var url = (nav && nav.url) ? nav.url.format(normalize(state.params, params || {})) : null;
-      return !$locationProvider.html5Mode() && url ? "#" + url : url;
+    $state.href = function (stateOrName, params) {
+      var state = findState(stateOrName), nav = state.navigable;
+      if (!nav) throw new Error("State '" + state + "' is not navigable");
+      return nav.url.format(normalize(state.params, params || {}));
     };
 
     function resolveState(state, params, paramsAreFiltered, inherited, dst) {
@@ -815,7 +806,7 @@ function $StateProvider(   $urlRouterProvider,   $urlMatcherFactory,           $
       }
 
       // Resolve 'global' dependencies for the state, i.e. those not specific to a view.
-      // We're also including $stateParams in this; that way the parameters are restricted
+      // We're also including $stateParams in this; that we're the parameters are restricted
       // to the set that should be visible to the state, and are independent of when we update
       // the global $state and $stateParams values.
       var globals = dst.globals = { $stateParams: $stateParams };
@@ -890,144 +881,74 @@ function $ViewDirective(   $state,   $compile,   $controller,   $injector,   $an
   var directive = {
     restrict: 'ECA',
     terminal: true,
-    transclude: true,
-    compile: function (element, attr, transclude) {
-      return function(scope, element, attr) {
-        var viewScope, viewLocals,
-            name = attr[directive.name] || attr.name || '',
-            onloadExp = attr.onload || '',
-            animate = isDefined($animator) && $animator(scope, attr);
+    link: function(scope, element, attr) {
+      var viewScope, viewLocals,
+          name = attr[directive.name] || attr.name || '',
+          onloadExp = attr.onload || '',
+          animate = isDefined($animator) && $animator(scope, attr);
+      
+      // Find the details of the parent view directive (if any) and use it
+      // to derive our own qualified view name, then hang our own details
+      // off the DOM so child directives can find it.
+      var parent = element.parent().inheritedData('$uiView');
+      if (name.indexOf('@') < 0) name  = name + '@' + (parent ? parent.state.name : '');
+      var view = { name: name, state: null };
+      element.data('$uiView', view);
 
-        // Put back the compiled initial view
-        element.append(transclude(scope));
+      scope.$on('$stateChangeSuccess', function() { updateView(true); });
+      updateView(false);
 
-        // Find the details of the parent view directive (if any) and use it
-        // to derive our own qualified view name, then hang our own details
-        // off the DOM so child directives can find it.
-        var parent = element.parent().inheritedData('$uiView');
-        if (name.indexOf('@') < 0) name  = name + '@' + (parent ? parent.state.name : '');
-        var view = { name: name, state: null };
-        element.data('$uiView', view);
+      function updateView(doAnimate) {
+        var locals = $state.$current && $state.$current.locals[name];
+        if (locals === viewLocals) return; // nothing to do
 
-        scope.$on('$stateChangeSuccess', function() { updateView(true); });
-        updateView(false);
+        // Destroy previous view scope and remove content (if any)
+        if (viewScope) {
+          if (animate && doAnimate) animate.leave(element.contents(), element);
+          else element.html('');
 
-        function updateView(doAnimate) {
-          var locals = $state.$current && $state.$current.locals[name];
-          if (locals === viewLocals) return; // nothing to do
-
-          // Remove existing content
-          if (animate && doAnimate) {
-            animate.leave(element.contents(), element);
-          } else {
-            element.html('');
-          }
-
-          // Destroy previous view scope
-          if (viewScope) {
-            viewScope.$destroy();
-            viewScope = null;
-          }
-
-          if (locals) {
-            viewLocals = locals;
-            view.state = locals.$$state;
-
-            var contents;
-            if (animate && doAnimate) {
-              contents = angular.element('<div></div>').html(locals.$template).contents();
-              animate.enter(contents, element);
-            } else {
-              element.html(locals.$template);
-              contents = element.contents();
-            }
-
-            var link = $compile(contents);
-            viewScope = scope.$new();
-            if (locals.$$controller) {
-              locals.$scope = viewScope;
-              var controller = $controller(locals.$$controller, locals);
-              element.children().data('$ngControllerController', controller);
-            }
-            link(viewScope);
-            viewScope.$emit('$viewContentLoaded');
-            viewScope.$eval(onloadExp);
-
-            // TODO: This seems strange, shouldn't $anchorScroll listen for $viewContentLoaded if necessary?
-            // $anchorScroll might listen on event...
-            $anchorScroll();
-          } else {
-            viewLocals = null;
-            view.state = null;
-
-            // Restore the initial view
-            var compiledElem = transclude(scope);
-            if (animate && doAnimate) {
-              animate.enter(compiledElem, element);
-            } else {
-              element.append(compiledElem);
-            }
-          }
+          viewScope.$destroy();
+          viewScope = null;
         }
-      };
+
+        if (locals) {
+          viewLocals = locals;
+          view.state = locals.$$state;
+
+          var contents;
+          if (animate && doAnimate) {
+            contents = angular.element('<div></div>').html(locals.$template).contents();
+            animate.enter(contents, element);
+          } else {
+            element.html(locals.$template);
+            contents = element.contents();
+          }
+
+          var link = $compile(contents);
+          viewScope = scope.$new();
+          if (locals.$$controller) {
+            locals.$scope = viewScope;
+            var controller = $controller(locals.$$controller, locals);
+            element.children().data('$ngControllerController', controller);
+          }
+          link(viewScope);
+          viewScope.$emit('$viewContentLoaded');
+          viewScope.$eval(onloadExp);
+
+          // TODO: This seems strange, shouldn't $anchorScroll listen for $viewContentLoaded if necessary?
+          // $anchorScroll might listen on event...
+          $anchorScroll();
+        } else {
+          viewLocals = null;
+          view.state = null;
+        }
+      }
     }
   };
   return directive;
 }
 
 angular.module('ui.state').directive('uiView', $ViewDirective);
-
-function parseStateRef(ref) {
-  var parsed = ref.match(/^([^(]+?)\s*(\((.*)\))?$/);
-  if (!parsed || parsed.length !== 4) throw new Error("Invalid state ref '" + ref + "'");
-  return { state: parsed[1], paramExpr: parsed[3] || null };
-}
-
-$StateRefDirective.$inject = ['$state'];
-function $StateRefDirective($state) {
-  return {
-    restrict: 'A',
-    link: function(scope, element, attrs) {
-      var ref = parseStateRef(attrs.uiSref);
-      var params = null, url = null;
-      var isForm = element[0].nodeName === "FORM";
-      var attr = isForm ? "action" : "href", nav = true;
-
-      var update = function(newVal) {
-        if (newVal) params = newVal;
-        if (!nav) return;
-
-        var newHref = $state.href(ref.state, params, { lossy: true });
-
-        if (!newHref) {
-          nav = false;
-          return false;
-        }
-        element[0][attr] = newHref;
-      };
-
-      if (ref.paramExpr) {
-        scope.$watch(ref.paramExpr, function(newVal, oldVal) {
-          if (newVal !== oldVal) update(newVal);
-        }, true);
-        params = scope.$eval(ref.paramExpr);
-      }
-      update();
-
-      if (isForm) return;
-
-      element.bind("click", function(e) {
-        if ((e.which == 1) && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-          $state.transitionTo(ref.state, params);
-          scope.$apply();
-          e.preventDefault();
-        }
-      });
-    }
-  };
-}
-
-angular.module('ui.state').directive('uiSref', $StateRefDirective);
 
 $RouteProvider.$inject = ['$stateProvider', '$urlRouterProvider'];
 function $RouteProvider(  $stateProvider,    $urlRouterProvider) {
