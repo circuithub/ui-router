@@ -3,8 +3,9 @@
 # UI-Router
 
 ####Finally a de-facto solution to nested views and routing.
-* Latest release 0.0.1: [Compressed](http://angular-ui.github.io/ui-router/release/angular-ui-router.min.js) / [Uncompressed](http://angular-ui.github.io/ui-router/release/angular-ui-router.js)
-* Latest snapshot: [Build the Project Locally](https://github.com/angular-ui/ui-router#developing)
+* We recommend the latest beta 0.0.2 (Guide and Docs are already updated to 0.0.2): [Build the Project Locally](https://github.com/angular-ui/ui-router#developing)
+* Last release 0.0.1: [Compressed](http://angular-ui.github.io/ui-router/release/angular-ui-router.min.js) / [Uncompressed](http://angular-ui.github.io/ui-router/release/angular-ui-router.js)
+
 
 **Warning:** UI-Router is in active development. The API is highly subject to change. It is not recommended to use this library on projects that require guaranteed stability. 
 
@@ -40,11 +41,12 @@ To evolve the concept of an [angularjs](http://angularjs.org/) [***route***](htt
 
 ## Resources
 
+**Note:** Quick Starts, Guide and API Ref are pre-updated for v0.0.2 release. 
+
 * [In-Depth Overview](https://github.com/angular-ui/ui-router/wiki)
 * [API Quick Reference](https://github.com/angular-ui/ui-router/wiki/Quick-Reference)
-* [FAQ](https://github.com/angular-ui/ui-router/wiki/Frequently-Asked-Questions)
 * [Sample App](http://angular-ui.github.com/ui-router/sample/) ([Source](https://github.com/angular-ui/ui-router/tree/master/sample))
-* [Generated Docs](http://angular-ui.github.com/ui-router/build/doc/)
+* [FAQ](https://github.com/angular-ui/ui-router/wiki/Frequently-Asked-Questions)
 
 ## Quick Start
 
@@ -65,10 +67,10 @@ To evolve the concept of an [angularjs](http://angularjs.org/) [***route***](htt
       <script src="angular-ui-router.min.js"></script> <!-- Insert after main angular.js file -->
 ```
 
-2. Set `ui.state` as a dependency in your module
+2. Set `ui.router` as a dependency in your module. Note: Use `ui.state` if using v0.0.1.
 >
 ```javascript
-var myapp = angular.module('myapp', ['ui.state']) 
+var myapp = angular.module('myapp', ['ui.router'])
 ```
 
 ### Nested States & Views
@@ -186,7 +188,7 @@ Another handy feature is the ability to have more than one view per template. Pl
 3. Set up your states in the module config:
 >
 ```javascript
-myapp.config(function($stateProvider, $routeProvider){
+myapp.config(function($stateProvider){
   $stateProvider
 		.state('index', {
 			url: "", // root route

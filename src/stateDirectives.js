@@ -18,7 +18,7 @@ function $StateRefDirective($state) {
         if (newVal) params = newVal;
         if (!nav) return;
 
-        var newHref = $state.href(ref.state, params, { lossy: true });
+        var newHref = $state.href(ref.state, params);
 
         if (!newHref) {
           nav = false;
@@ -39,7 +39,7 @@ function $StateRefDirective($state) {
 
       element.bind("click", function(e) {
         if ((e.which == 1) && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-          $state.transitionTo(ref.state, params);
+          $state.go(ref.state, params);
           scope.$apply();
           e.preventDefault();
         }
@@ -48,4 +48,4 @@ function $StateRefDirective($state) {
   };
 }
 
-angular.module('ui.state').directive('uiSref', $StateRefDirective);
+angular.module('ui.router.state').directive('uiSref', $StateRefDirective);
